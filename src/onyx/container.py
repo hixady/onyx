@@ -166,7 +166,7 @@ def create_rvc_package(output_path, onnx_path=None, onnx_bytes=None,
     if metadata is None:
         metadata = {}
 
-    metadata["version"] = 2
+    metadata["version"] = 1
 
     files = {"rvc": "model.onnx"}
     entries = [

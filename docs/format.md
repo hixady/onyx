@@ -43,7 +43,7 @@ Archive paths are arbitrary and specified in `metadata.json` via the `files` map
 
 ### version
 
-Format version integer. Current: `2`. Old format (v1) is detected by the absence of `version` and `files` keys.
+Format version integer. Current: `1`.
 
 ### files
 
