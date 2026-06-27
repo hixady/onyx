@@ -33,10 +33,10 @@ class RVCModel:
             self._name = meta.get("name", path.stem)
             self._container = container
 
-            model_src = container.read("model.onnx")
-            rmvpe_src = rmvpe or (container.read("rmvpe.onnx") if container.has_rmvpe else None)
-            cv_src = cv or (container.read("contentvec.onnx") if container.has_contentvec else None)
-            index_src = index or (container.read("model.index") if container.has_index else None)
+            model_src = container.read_by_role("rvc", "model.onnx")
+            rmvpe_src = rmvpe or (container.read_by_role("pitch", "rmvpe.onnx") if container.has_rmvpe else None)
+            cv_src = cv or (container.read_by_role("embedding", "contentvec.onnx") if container.has_contentvec else None)
+            index_src = index or (container.read_by_role("index", "model.index") if container.has_index else None)
         else:
             self._meta = {}
             self._name = path.stem
@@ -135,7 +135,12 @@ class RVCModel:
             name = meta.get("name", Path(path).stem)
             print(f"Valid: {name}")
             for k, v in meta.items():
-                if k != "sha256":
+                if k == "sha256":
+                    if isinstance(v, dict):
+                        print(f"  sha256: {len(v)} files verified")
+                    else:
+                        print(f"  sha256: {v[:16]}...")
+                else:
                     print(f"  {k}: {v}")
         else:
             print(f"Invalid: {Path(path).name}")

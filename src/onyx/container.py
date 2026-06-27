@@ -6,6 +6,15 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+_ROLE_MAP = {
+    "rvc": "model.onnx",
+    "pitch": "rmvpe.onnx",
+    "embedding": "contentvec.onnx",
+    "index": "model.index",
+    "demo": "demo.wav",
+    "icon": "icon.png",
+}
+
 
 class RVCContainer:
     def __init__(self, path):
@@ -13,6 +22,7 @@ class RVCContainer:
         self._zip = None
         self._tmpdir = None
         self._extracted = {}
+        self._meta = None
 
     def _open(self):
         if self._zip is None:
@@ -27,17 +37,31 @@ class RVCContainer:
             self._tmpdir = tempfile.mkdtemp(prefix="onyx_")
         return self._tmpdir
 
+    def _files(self):
+        m = self.read_metadata()
+        return m.get("files", {})
+
+    def _arcname(self, role, fallback):
+        files = self._files()
+        return files.get(role, fallback)
+
+    def _has_role(self, role, fallback):
+        files = self._files()
+        if files:
+            return role in files
+        return fallback in self._names()
+
     @property
     def has_index(self):
-        return "model.index" in self._names()
+        return self._has_role("index", "model.index")
 
     @property
     def has_rmvpe(self):
-        return "rmvpe.onnx" in self._names()
+        return self._has_role("pitch", "rmvpe.onnx")
 
     @property
     def has_contentvec(self):
-        return "contentvec.onnx" in self._names()
+        return self._has_role("embedding", "contentvec.onnx")
 
     @property
     def has_metadata(self):
@@ -45,19 +69,25 @@ class RVCContainer:
 
     @property
     def has_demo(self):
-        return "demo.wav" in self._names()
+        return self._has_role("demo", "demo.wav")
 
     @property
     def has_icon(self):
-        return "icon.png" in self._names()
+        return self._has_role("icon", "icon.png")
 
     def read(self, name):
         return self._open().read(name)
 
+    def read_by_role(self, role, fallback):
+        return self.read(self._arcname(role, fallback))
+
     def read_metadata(self):
-        if self.has_metadata:
-            return json.loads(self.read("metadata.json"))
-        return {}
+        if self._meta is None:
+            if self.has_metadata:
+                self._meta = json.loads(self.read("metadata.json"))
+            else:
+                self._meta = {}
+        return self._meta
 
     def extract(self, name):
         if name in self._extracted:
@@ -90,13 +120,19 @@ class RVCContainer:
         meta = self.read_metadata()
         sha256_expected = meta.get("sha256")
 
-        if sha256_expected:
+        if isinstance(sha256_expected, dict):
+            for arcname, expected in sha256_expected.items():
+                if arcname not in self._names():
+                    errors.append(f"missing {arcname}")
+                    continue
+                actual = hashlib.sha256(self.read(arcname)).hexdigest()
+                if actual != expected:
+                    errors.append(f"sha256 mismatch for {arcname}")
+        elif sha256_expected:
             data = self.read("model.onnx")
-            sha256_actual = hashlib.sha256(data).hexdigest()
-            if sha256_actual != sha256_expected:
-                errors.append(
-                    f"sha256 mismatch: expected {sha256_expected}, got {sha256_actual}"
-                )
+            actual = hashlib.sha256(data).hexdigest()
+            if actual != sha256_expected:
+                errors.append("sha256 mismatch for model.onnx")
 
         required = ["model.onnx"]
         for name in required:
@@ -130,11 +166,26 @@ def create_rvc_package(output_path, onnx_path=None, onnx_bytes=None,
     if metadata is None:
         metadata = {}
 
+    metadata["version"] = 2
+
+    files = {"rvc": "model.onnx"}
+    entries = [
+        ("pitch", rmvpe_path, "rmvpe.onnx"),
+        ("embedding", contentvec_path, "contentvec.onnx"),
+        ("index", index_path, "model.index"),
+        ("demo", demo_path, "demo.wav"),
+        ("icon", icon_path, "icon.png"),
+    ]
+    for role, src_path, arcname in entries:
+        if src_path and Path(src_path).exists():
+            files[role] = arcname
+    metadata["files"] = files
+
     if onnx_bytes is None:
         onnx_bytes = Path(onnx_path).read_bytes()
 
-    sha256 = hashlib.sha256(onnx_bytes).hexdigest()
-    metadata["sha256"] = sha256
+    hashes = {}
+    hashes["model.onnx"] = hashlib.sha256(onnx_bytes).hexdigest()
 
     if "sample_rate" not in metadata or "phone_dim" not in metadata:
         import onnx
@@ -158,15 +209,14 @@ def create_rvc_package(output_path, onnx_path=None, onnx_bytes=None,
                     phone_dim = dims[2]
         metadata["phone_dim"] = phone_dim
 
-    with zipfile.ZipFile(out, "w", zipfile.ZIP_DEFLATED) as zf:
+    with zipfile.ZipFile(out, "w", zipfile.ZIP_STORED) as zf:
         zf.writestr("model.onnx", onnx_bytes)
-        for opt_path, arcname in [(index_path, "model.index"),
-                                  (rmvpe_path, "rmvpe.onnx"),
-                                  (contentvec_path, "contentvec.onnx"),
-                                  (demo_path, "demo.wav"),
-                                  (icon_path, "icon.png")]:
-            if opt_path and Path(opt_path).exists():
-                zf.write(opt_path, arcname)
+        for role, src_path, arcname in entries:
+            if src_path and Path(src_path).exists():
+                data = Path(src_path).read_bytes()
+                hashes[arcname] = hashlib.sha256(data).hexdigest()
+                zf.writestr(arcname, data)
+        metadata["sha256"] = hashes
         zf.writestr("metadata.json", json.dumps(metadata, indent=2))
 
     kb = out.stat().st_size / 1024

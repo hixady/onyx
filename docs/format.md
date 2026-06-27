@@ -1,41 +1,74 @@
 # .rvc container format
 
-`.rvc` is a standard ZIP archive (DEFLATE compression) that bundles an RVC ONNX model with optional auxiliary files and metadata.
+`.rvc` is a standard ZIP archive (no compression — `ZIP_STORED`) that bundles an RVC ONNX model with optional auxiliary files and metadata.
 
 ## Structure
 
 ```
 model.rvc
-├── model.onnx        # Required — the RVC synthesizer ONNX model
-├── metadata.json     # Auto-generated — container metadata (see below)
-├── model.index       # Optional — FAISS index for retrieval-augmented synthesis
-├── rmvpe.onnx        # Optional — RMVPE pitch extraction model
-├── contentvec.onnx   # Optional — ContentVec feature extractor (v2, 768-dim)
-├── demo.wav          # Optional — demo audio sample
+├── model.onnx         # Required — the RVC synthesizer ONNX model
+├── metadata.json      # Auto-generated — container manifest
+├── rmvpe.onnx         # Optional — RMVPE pitch extraction model
+├── contentvec.onnx    # Optional — ContentVec feature extractor
+├── model.index        # Optional — FAISS index for retrieval
+├── demo.wav           # Optional — demo audio
 └── icon.png           # Optional — model icon
 ```
+
+Archive paths are arbitrary and specified in `metadata.json` via the `files` mapping. The above shows the default naming convention.
 
 ## metadata.json schema
 
 ```json
 {
-  "sha256":       "abc...",       // SHA-256 hex digest of model.onnx
-  "sample_rate":  48000,          // Output sample rate (auto-detected)
-  "phone_dim":    768,            // Phone embedding dimension (auto-detected)
-  "name":         "MyModel",      // Optional — model display name
-  "author":       "...",          // Optional
-  "notes":        "...",          // Optional
-  "tags":         ["tag1", "tag2"] // Optional
+    "version": 2,
+    "files": {
+        "rvc": "model.onnx",
+        "pitch": "rmvpe.onnx",
+        "embedding": "contentvec.onnx",
+        "index": "model.index"
+    },
+    "sha256": {
+        "model.onnx": "e3b0c442...",
+        "rmvpe.onnx": "d7a8fbb3..."
+    },
+    "sample_rate": 48000,
+    "phone_dim": 768,
+    "name": "MyModel",
+    "author": "...",
+    "notes": "...",
+    "tags": ["tag1", "tag2"]
 }
 ```
 
+### version
+
+Format version integer. Current: `2`. Old format (v1) is detected by the absence of `version` and `files` keys.
+
+### files
+
+Maps logical roles to archive paths inside the zip:
+
+| Role | Required | Description |
+|------|----------|-------------|
+| `rvc` | Yes | RVC ONNX model |
+| `pitch` | No | RMVPE pitch extraction model |
+| `embedding` | No | ContentVec feature extractor |
+| `index` | No | FAISS index |
+| `demo` | No | Demo audio |
+| `icon` | No | Model icon |
+
+The presence of a role key in `files` indicates the container has that capability.
+To check if a container is pitch-capable, check `"pitch" in metadata["files"]`.
+
 ### sha256
 
-Computed from `model.onnx` at pack time. Used by `onyx verify` and `--no-verify` to skip the check during inference.
+SHA-256 hex digests of every file in the archive, keyed by archive path.
+Used by `onyx verify` to check integrity of all files.
 
-### sample_rate auto-detection
+### sample_rate
 
-Detected from the model's `ConvTranspose` node strides:
+Output sample rate, auto-detected from the model's `ConvTranspose` node strides:
 
 ```python
 ratio = 1
@@ -47,18 +80,15 @@ for node in model.graph.node:
 sample_rate = ratio * 100
 ```
 
-Common values:
-- 400× upsampling → **40 kHz**
-- 480× upsampling → **48 kHz**
+Common: 400× upsampling → 40 kHz, 480× → 48 kHz.
 
-### phone_dim auto-detection
+### phone_dim
 
-Read from the `phone` input tensor shape (dimension 2):
+Phone embedding dimension, read from the `phone` input tensor (axis 2):
+- **768** — v2 model
+- **256** — v1 model
 
-- **768** — v2 model (768-dim phone embeddings)
-- **256** — v1 model (256-dim phone embeddings)
-
-## Creating .rvc files
+## Modeling
 
 ```python
 from onyx import RVCModel
@@ -68,33 +98,34 @@ RVCModel.pack("model.rvc", model="model.onnx", index="model.index")
 
 # From ONNX bytes (e.g. after conversion)
 with open("model.onnx", "rb") as f:
-    RVCModel.pack("model.rvc", model=f.read(), index="model.index")
-
-# With extra metadata
-RVCModel.pack("model.rvc", model="model.onnx",
-              name="My Voice", author="User", tags="cool,test")
+    RVCModel.pack("model.rvc", model=f.read(), rmvpe="rmvpe.onnx")
 ```
 
-## Model bundling priority
+## Capability detection
 
-When loading a `.rvc` container, the model resolution order is:
+The `files` mapping doubles as the capability manifest:
 
-1. **Explicit CLI argument** (`--rmvpe`, `--cv`, `--index`) — highest priority
-2. **Bundled inside .rvc** — used if the explicit argument is not provided
-3. **CWD fallback** — `./rmvpe.onnx`, `./contentvec.onnx` checked if not found above
-4. **Error** — if RMVPE or ContentVec are still missing
+```python
+with RVCContainer("model.rvc") as c:
+    meta = c.read_metadata()
+    files = meta.get("files", {})
+    has_pitch = "pitch" in files
+    has_embedding = "embedding" in files
+    has_index = "index" in files
+```
 
-## Version compatibility
+## Backward compatibility
 
-| Field | v1 (256-dim) | v2 (768-dim) |
-|-------|-------------|-------------|
-| Phone dim | 256 | 768 |
-| ContentVec | contentvec_256l9 | contentvec_768l12 |
-| Status | Untested (code present) | Fully tested |
+Old format (v1, missing `files` and `version`) is detected automatically:
+
+- `has_*` properties fall back to checking hardcoded filenames
+- `sha256` string → treated as hash of `model.onnx` only
+- All old `.rvc` files remain readable
 
 ## Integrity verification
 
 `onyx verify model.rvc` checks:
 1. `metadata.json` exists
-2. SHA-256 of `model.onnx` matches the hash in `metadata.json`
-3. All required entries (`model.onnx`) are present
+2. Every file listed in `sha256` has a matching hash
+3. All files listed in `files` mapping exist in the archive
+4. `model.onnx` is present (backward compat fallback)
