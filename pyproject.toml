@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "onyx"
+version = "0.1.0"
+description = "RVC voice conversion — ONNX inference library and CLI"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy",
+    "onnx",
+    "soundfile",
+    "scipy",
+]
+
+[project.optional-dependencies]
+cpu = ["onnxruntime", "faiss-cpu"]
+cuda = ["onnxruntime-gpu", "faiss-gpu"]
+dml = ["onnxruntime-directml", "faiss-cpu"]
+all = ["onyx[cpu,cuda,dml]"]
+
+[project.scripts]
+onyx = "onyx.cli:main"
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.setuptools.packages.find]
+where = ["src"]
