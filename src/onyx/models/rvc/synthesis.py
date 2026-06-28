@@ -2,7 +2,7 @@ import numpy as np
 import onnx
 import onnxruntime as ort
 
-from onyx.f0 import f0_to_coarse
+from onyx.models.rvc.f0 import f0_to_coarse
 
 
 class Synthesizer:

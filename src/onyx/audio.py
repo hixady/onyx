@@ -5,18 +5,19 @@ from scipy import signal as scipy_signal
 _RVC_INPUT_SR = 16000
 
 
-def load_audio(path, target_sr=_RVC_INPUT_SR):
+def load_audio(path, target_sr=None):
     audio, sr = sf.read(path, dtype="float32", always_2d=False)
     if audio.ndim > 1:
         audio = audio.mean(axis=1)
-    if sr != target_sr:
+    if target_sr is not None and sr != target_sr:
         n_out = int(len(audio) * target_sr / sr)
         audio = np.interp(
             np.linspace(0, len(audio) - 1, n_out),
             np.arange(len(audio)),
             audio,
         ).astype(np.float32)
-    return audio
+        return audio, target_sr
+    return audio, sr
 
 
 def highpass_filter(audio, cutoff=48, order=5, sr=_RVC_INPUT_SR):
@@ -37,8 +38,8 @@ def get_chunk_ranges(total_len, chunk_size, overlap):
     return ranges
 
 
-def stitch_chunks(chunks, ranges, total_input_len, sr_out, overlap_sec):
-    output_sr_ratio = sr_out / _RVC_INPUT_SR
+def stitch_chunks(chunks, ranges, total_input_len, sr_out, overlap_sec, sr_in=16000):
+    output_sr_ratio = sr_out / sr_in
     total_output_len = int(total_input_len * output_sr_ratio)
     overlap_out = int(overlap_sec * sr_out) if len(ranges) > 1 else 0
 

@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "onyx"
 version = "0.1.0"
-description = "RVC voice conversion — ONNX inference library and CLI"
+description = "Multi-arch ONNX inference framework and container format"
 requires-python = ">=3.10"
 dependencies = [
     "numpy",
@@ -22,6 +22,10 @@ all = ["onyx[cpu,cuda,dml]"]
 
 [project.scripts]
 onyx = "onyx.cli:main"
+
+[project.entry-points."onyx.arch"]
+rvc = "onyx.models.rvc:RVCArch"
+mdx = "onyx.models.mdx:MDXArch"
 
 [tool.setuptools.package-dir]
 "" = "src"

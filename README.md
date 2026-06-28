@@ -1,41 +1,46 @@
 # onyx
 
-RVC voice conversion inference library and CLI. Runs on ONNX Runtime with CPU, CUDA, or DirectML.
+Multi-arch ONNX inference framework and container format. Runs voice conversion (RVC), source separation (MDX-Net), and more on ONNX Runtime with CPU, CUDA, or DirectML.
 
 ## Install
 
 ```bash
-pip install onyx[cpu]       # ONNX Runtime CPU + FAISS CPU
-pip install onyx[cuda]      # ONNX Runtime CUDA + FAISS GPU
-pip install onyx[dml]       # ONNX Runtime DirectML + FAISS CPU
+pip install onyx              # core only (no runtime)
+pip install onyx[cpu]         # ONNX Runtime CPU
+pip install onyx[cuda]        # ONNX Runtime CUDA
+pip install onyx[dml]         # ONNX Runtime DirectML
 ```
 
 ## Quick start
 
 ```bash
-# Convert audio
-onyx infer -i input.wav -o output.wav --model model.rvc
+# Voice conversion (RVC)
+onyx run rvc -i input.wav -o output.wav --model model.onyx
 
-# Package model into .rvc
-onyx pack --model model.onnx -o model.rvc
+# Source separation (MDX-Net)
+onyx run mdx -i mix.wav -o stems/ --model mdx.onyx
+
+# Single stem extraction
+onyx run mdx -i mix.wav -o vocals.wav --model mdx.onyx --only vocals
+
+# Package files into .onyx
+onyx pack -o model.onyx --type rvc --model model.onnx
 
 # Verify container integrity
-onyx verify model.rvc
+onyx verify model.onyx
 ```
 
-## Pipeline
-
-1. Load + resample audio to 16kHz → high-pass filter (48Hz)
-2. Extract ContentVec features via ONNX (50Hz → 100Hz)
-3. Extract F0 via RMVPE ONNX or autocorrelation
-4. Retrieve similar features from FAISS index (optional)
-5. Synthesize audio via RVC ONNX model
-6. Output WAV at model-native sample rate
-
 Provider priority (auto): `CUDA` → `DirectML` → `CPU`
+
+## Architectures
+
+| Type | Description |
+|------|-------------|
+| `rvc` | RVC voice conversion (ContentVec + RMVPE + Synthesizer) |
+| `mdx` | MDX-Net music source separation (vocals, bass, drums, other) |
 
 ## Documentation
 
 - [CLI reference](docs/cli.md) — all subcommands and options
 - [Library API](docs/library.md) — using onyx from Python
-- [Container format](docs/format.md) — .rvc file specification
+- [Container format](docs/format.md) — `.onyx` file specification
