@@ -29,17 +29,18 @@ class MDXSeparator:
         mix_p[:, self.trim:self.trim + n_sample] = mix[:, :n_sample]
 
         n_chunks = (n_sample + pad + gen_size - 1) // gen_size
-        chunks = np.zeros((n_chunks, 2, self.chunk_size), dtype=np.float32)
+        out_parts = []
         for i in range(n_chunks):
             offset = i * gen_size
-            chunks[i] = mix_p[:, offset:offset + self.chunk_size]
-
-        spec = mdx_stft(chunks, self.n_fft, self.hop_length, self.dim_f, window=self.window)
-        out_spec = self.sess.run(None, {"input": spec})[0]
-        tar_waves = mdx_istft(out_spec, self.n_fft, self.hop_length,
+            chunk = mix_p[:, offset:offset + self.chunk_size]
+            spec = mdx_stft(chunk[np.newaxis], self.n_fft, self.hop_length,
+                            self.dim_f, window=self.window)
+            out_spec = self.sess.run(None, {"input": spec})[0]
+            waves = mdx_istft(out_spec, self.n_fft, self.hop_length,
                               self.dim_f, self.dim_c, window=self.window)
+            out_parts.append(waves[0, :, self.trim:-self.trim])
 
-        tar_signal = tar_waves[:, :, self.trim:-self.trim].transpose(1, 0, 2).reshape(2, -1)
+        tar_signal = np.concatenate(out_parts, axis=1)
         if pad > 0:
             tar_signal = tar_signal[:, :-pad]
         return tar_signal
