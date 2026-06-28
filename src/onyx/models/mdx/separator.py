@@ -46,13 +46,15 @@ class MDXSeparator:
         return tar_signal
 
 
+MIXER_ORDER = ['bass', 'drums', 'other', 'vocals']
+
+
 def apply_mixer(mixer_onnx: bytes, sources: dict[str, np.ndarray],
                 mix: np.ndarray, providers=None):
     sess = ort.InferenceSession(mixer_onnx, providers=providers)
-    dim_s = len(sources)
-    names = list(sources.keys())
+    names = [n for n in MIXER_ORDER if n in sources]
     x = np.stack([sources[n] for n in names] + [mix], axis=0)
-    x = x.reshape(1, (dim_s + 1) * 2, -1).transpose(0, 2, 1)
+    x = x.reshape(1, (len(names) + 1) * 2, -1).transpose(0, 2, 1)
     out = sess.run(None, {"input": x.astype(np.float32)})[0]
-    out = out.transpose(0, 2, 1).reshape(dim_s, 2, -1)
-    return {names[i]: out[i] for i in range(dim_s)}
+    out = out.transpose(0, 2, 1).reshape(len(names), 2, -1)
+    return {names[i]: out[i] for i in range(len(names))}
