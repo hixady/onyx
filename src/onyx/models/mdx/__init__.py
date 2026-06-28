@@ -24,7 +24,7 @@ class MDXArch(ModelArch):
     def add_args(p):
         p.add_argument("--mixer", default=None,
                        help="Path to mixer ONNX model (optional)")
-        p.add_argument("--only", default=None, choices=SOURCES,
+        p.add_argument("--only", default=None,
                        help="Extract only a single stem (default: all)")
 
     def validate(self, container: Container):
@@ -36,14 +36,19 @@ class MDXArch(ModelArch):
             if key not in cfg:
                 raise ValueError(f"Missing config key: {key}")
 
+    def _available_sources(self, container: Container) -> list[str]:
+        files = container.read_metadata().get("files", {})
+        return [k.removeprefix("model_") for k in files if k.startswith("model_")]
+
     def run(self, audio, sr, container, shared, **kwargs):
         providers = self._select_providers()
         meta = container.read_metadata()
         cfg = meta["config"]
         hop = cfg["hop_length"]
+        available = self._available_sources(container)
 
         only = kwargs.get("only")
-        targets = [only] if only else SOURCES
+        targets = [only] if only else available
 
         sources_cfg = cfg["sources"]
         separators = {}
@@ -74,7 +79,7 @@ class MDXArch(ModelArch):
         for name, sep in separators.items():
             outputs[name] = sep.separate(mix)
 
-        if len(outputs) == len(SOURCES) and (kwargs.get("mixer") or "mixer" in container.get_files()):
+        if len(outputs) >= 2 and (kwargs.get("mixer") or "mixer" in container.get_files()):
             try:
                 mixer_path = kwargs.get("mixer")
                 if mixer_path:
@@ -82,7 +87,7 @@ class MDXArch(ModelArch):
                 else:
                     mixer_data = container.read_by_role("mixer")
                 outputs = apply_mixer(mixer_data, outputs, mix, providers)
-            except (KeyError, FileNotFoundError):
+            except Exception:
                 pass
 
         return outputs
