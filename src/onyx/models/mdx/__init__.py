@@ -48,16 +48,15 @@ class MDXArch(ModelArch):
         available = self._available_sources(container)
 
         only = kwargs.get("only")
+        if only and only not in available:
+            raise ValueError(f"Stem '{only}' not in container (available: {available})")
         targets = [only] if only else available
 
         sources_cfg = cfg["sources"]
         separators = {}
         for name in targets:
             role = f"model_{name}"
-            try:
-                onnx_data = container.read_by_role(role)
-            except KeyError:
-                continue
+            onnx_data = container.read_by_role(role)
             src_cfg = sources_cfg.get(name, {})
             n_fft = src_cfg.get("n_fft", 6144)
             dim_f = src_cfg.get("dim_f", 2048)

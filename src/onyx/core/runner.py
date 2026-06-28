@@ -22,10 +22,13 @@ def _normalize(wav):
 def write_outputs(output_path, outputs, sr):
     names = list(outputs.keys())
     if len(names) == 1:
+        p = Path(output_path)
+        if not p.suffix:
+            p = p.with_suffix(".wav")
         wav = _normalize(outputs[names[0]])
         if wav.ndim == 2:
             wav = wav.T
-        sf.write(output_path, wav, sr, subtype="PCM_16")
+        sf.write(str(p), wav, sr, subtype="PCM_16")
         return
 
     dst = Path(output_path)
